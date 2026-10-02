@@ -22,9 +22,22 @@ pragma solidity ^0.8.24;
 /// Payouts are pull, not push, on purpose. Arc's blocklist reverts a value
 /// transfer to or from a blocklisted address at the protocol level — a single
 /// push transaction fanning out to every recipient at once would let one
-/// blocklisted payee revert the whole distribution. `claim()` isolates that:
-/// each recipient pays their own gas to withdraw their own share, so one
-/// frozen address costs that address its claim and nobody else's.
+/// blocklisted payee revert the whole distribution. Claiming isolates that:
+/// one call moves one payee's share, so one frozen address costs that address
+/// its claim and nobody else's.
+///
+/// But a pull-only `claim()` has a deadlock, and on Arc it is the normal case
+/// rather than an edge one. Gas here is USDC, so paying for a transaction
+/// means already holding USDC — and a developer whose first earnings are
+/// sitting in this vault holds nothing. Their money is one transaction away
+/// and they cannot afford the transaction. `claimFor` is the way out: anyone
+/// may trigger a payee's claim, and the money still goes to the payee and
+/// nowhere else. The platform spends a fraction of a cent of gas to unstick
+/// someone, with no ability to redirect, withhold, or take a cut for doing it,
+/// and no standing permission over the vault — and because it is open to
+/// anyone, we are not a gatekeeper either. (The alternative was an ERC-4337
+/// bundler and paymaster, or EIP-7702 delegation: a great deal of machinery to
+/// avoid one `address` parameter.)
 contract SplitVault {
     error ZeroAddress();
     error LengthMismatch();
@@ -137,18 +150,35 @@ contract SplitVault {
         return owed(payee) - claimed[payee];
     }
 
+    function claim() external {
+        _claim(msg.sender);
+    }
+
+    /// Pay `payee` what they are owed, paid for by whoever calls this.
+    ///
+    /// Deliberately open to anyone, because the money can only ever go to
+    /// `payee` — see the note above `contract SplitVault` for why this exists
+    /// at all. The caller spends gas and gains nothing, so there is nothing
+    /// here to abuse beyond wasting one's own money; the worst a caller can do
+    /// is pay to deliver someone else's funds slightly earlier than they
+    /// asked.
+    function claimFor(address payee) external {
+        if (payee == address(0)) revert ZeroAddress();
+        _claim(payee);
+    }
+
     /// Effects before the external call, deliberately — `claimed` is updated
     /// first so a reentrant call sees nothing left to claim, rather than
     /// relying on a guard.
-    function claim() external {
-        uint256 amount = claimable(msg.sender);
+    function _claim(address payee) private {
+        uint256 amount = claimable(payee);
         if (amount == 0) revert NothingOwed();
 
-        claimed[msg.sender] += amount;
+        claimed[payee] += amount;
 
-        (bool ok,) = msg.sender.call{value: amount}("");
+        (bool ok,) = payee.call{value: amount}("");
         if (!ok) revert TransferFailed();
 
-        emit Claimed(msg.sender, amount);
+        emit Claimed(payee, amount);
     }
 }

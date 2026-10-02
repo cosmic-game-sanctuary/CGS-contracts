@@ -44,6 +44,10 @@ contract GameRegistry {
     event BuildUpdated(bytes32 indexed gameId, uint32 version, string buildCid);
     event Delisted(bytes32 indexed gameId);
     event Relisted(bytes32 indexed gameId, uint256 priceUnits);
+    /// How many people are waiting for a game, at the moment it crosses a
+    /// threshold. Not price-bearing: this states interest, not an offer, so a
+    /// reader watching for a price cannot mistake it for one.
+    event Demand(bytes32 indexed gameId, uint32 wishlistCount, uint32 milestone);
 
     modifier onlyOperator() {
         if (msg.sender != operator) revert NotOperator();
@@ -101,5 +105,22 @@ contract GameRegistry {
 
         delisted[gameId] = false;
         emit Relisted(gameId, priceUnits);
+    }
+
+    /// Publish how many people are waiting for a game.
+    ///
+    /// Here because it is the one thing a storefront normally keeps: knowing
+    /// what people want before they buy it is the moat, so ours is a public
+    /// count anyone can read — a developer deciding whether a discount is
+    /// worth it included. Callers are expected to emit once per threshold
+    /// crossed rather than once per wishlist save; the contract keeps no
+    /// counter of its own, because the count it would keep could disagree with
+    /// the one people actually see.
+    function announceDemand(bytes32 gameId, uint32 wishlistCount, uint32 milestone)
+        external
+        onlyOperator
+        published(gameId)
+    {
+        emit Demand(gameId, wishlistCount, milestone);
     }
 }

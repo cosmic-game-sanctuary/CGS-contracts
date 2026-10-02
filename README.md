@@ -13,17 +13,29 @@ USDC as gas. Reasoning and the full design are in the private docs:
   answer "what does this wallet hold" in one call. Delisting can't touch it.
 - **`SplitVault.sol`** — one per game, deployed at publish, immutable. Splits
   whatever it receives between developers and the platform; nobody but a
-  payee can touch their own claim.
+  payee can touch their own claim. `claimFor` lets anyone pay the gas to
+  release a payee's share — necessary because gas on Arc is USDC, so a
+  developer whose first earnings are still in the vault cannot afford the
+  transaction that would release them.
+
+- **`VaultFactory.sol`** — deploys one vault per game, exactly once. Publishing
+  is a deploy *and* a registry write, and `vaultOf` is what makes the pair safe
+  to retry when the second half fails.
 
 ## Testnet deployment (Arc Testnet, chain 5042002)
 
-All three are source-verified on the explorer.
+All source-verified on the explorer.
 
 | | Address |
 |---|---|
-| GameRegistry | [`0x70fabA1e69f8628314224C7FFfa2590bA8f30c5d`](https://explorer.testnet.arc.io/address/0x70fabA1e69f8628314224C7FFfa2590bA8f30c5d) |
+| GameRegistry | [`0xE7aa837c45caE001bAc6f026B23edf6e96Ee490e`](https://explorer.testnet.arc.io/address/0xE7aa837c45caE001bAc6f026B23edf6e96Ee490e) |
 | GameKey | [`0xaDC0757f81680c7014FbCE73d664653c5c629c41`](https://explorer.testnet.arc.io/address/0xaDC0757f81680c7014FbCE73d664653c5c629c41) |
-| SplitVault (example: one developer, 5% platform) | [`0x71349A7527A6Cb3d1bEa1153f2a5c7C8fC36C5b4`](https://explorer.testnet.arc.io/address/0x71349A7527A6Cb3d1bEa1153f2a5c7C8fC36C5b4) |
+| VaultFactory | [`0xc267BB087a1Bd1aAAB16c807e3f57980C78005ef`](https://explorer.testnet.arc.io/address/0xc267BB087a1Bd1aAAB16c807e3f57980C78005ef) |
+| SplitVault (example: one developer, 5% platform) | [`0x0F4cbd4cd4C80868459865D996A62F6AfA0ac760`](https://explorer.testnet.arc.io/address/0x0F4cbd4cd4C80868459865D996A62F6AfA0ac760) |
+
+`GameRegistry` was redeployed when it gained the `Demand` event, so the address
+above replaces an earlier one; `GameKey` did not change and is deliberately the
+original, so the keys already minted against it stay checkable on chain.
 
 ## Build and test
 

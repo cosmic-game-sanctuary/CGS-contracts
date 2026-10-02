@@ -180,4 +180,102 @@ contract SplitVaultTest is Test {
         bps[0] = 9500;
         return _deploy(recipients, bps, 500);
     }
+
+    // ─── claimFor: the gas deadlock ──────────────────────────────────────────
+    //
+    // On Arc gas is USDC, so a developer whose only money is in this vault
+    // cannot afford the transaction that would release it. These cover the way
+    // out, and that it cannot be turned into a way to take someone's money.
+
+    function _oneDevVault() internal returns (SplitVault) {
+        address[] memory recipients = new address[](1);
+        recipients[0] = dev1;
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 9500;
+        SplitVault vault = _deploy(recipients, bps, 500);
+        vm.deal(address(vault), 10 ether);
+        return vault;
+    }
+
+    function test_claimForPaysThePayeeNotTheCaller() public {
+        SplitVault vault = _oneDevVault();
+        address stranger = makeAddr("stranger");
+
+        // The case that matters: the payee has nothing, so on Arc they could
+        // not have sent this transaction themselves.
+        vm.deal(dev1, 0);
+        assertEq(dev1.balance, 0);
+
+        uint256 strangerBefore = stranger.balance;
+        vm.prank(stranger);
+        vault.claimFor(dev1);
+
+        assertEq(dev1.balance, 9.5 ether, "the payee got their share");
+        assertEq(stranger.balance, strangerBefore, "the caller got nothing for it");
+    }
+
+    function test_claimForCannotRedirectToTheCaller() public {
+        SplitVault vault = _oneDevVault();
+        address thief = makeAddr("thief");
+
+        // A non-payee has nothing owed, so there is no share to claim "for"
+        // them — the only address claimFor can pay is one with a real share.
+        vm.prank(thief);
+        vm.expectRevert(SplitVault.NothingOwed.selector);
+        vault.claimFor(thief);
+
+        assertEq(thief.balance, 0);
+    }
+
+    function test_claimForCannotBeUsedTwice() public {
+        SplitVault vault = _oneDevVault();
+
+        vault.claimFor(dev1);
+        assertEq(dev1.balance, 9.5 ether);
+
+        // Repeated calls are the expected shape of this — anyone may call it,
+        // so it will be called again. It must be worth nothing the second time.
+        vm.expectRevert(SplitVault.NothingOwed.selector);
+        vault.claimFor(dev1);
+        assertEq(dev1.balance, 9.5 ether);
+    }
+
+    function test_claimForAndClaimShareTheSameLedger() public {
+        SplitVault vault = _oneDevVault();
+
+        vault.claimFor(dev1);
+        // Having been paid by someone else's transaction must leave nothing
+        // for the payee's own claim() to find, or the two paths together would
+        // pay twice.
+        vm.prank(dev1);
+        vm.expectRevert(SplitVault.NothingOwed.selector);
+        vault.claim();
+    }
+
+    function test_claimForRejectsZeroAddress() public {
+        SplitVault vault = _oneDevVault();
+        vm.expectRevert(SplitVault.ZeroAddress.selector);
+        vault.claimFor(address(0));
+    }
+
+    function test_claimForOneBlocklistedPayeeDoesNotBlockTheOthers() public {
+        address[] memory recipients = new address[](2);
+        recipients[0] = dev1;
+        recipients[1] = BLOCKLISTED;
+        uint16[] memory bps = new uint16[](2);
+        bps[0] = 5000;
+        bps[1] = 4500;
+        SplitVault vault = _deploy(recipients, bps, 500);
+        vm.deal(address(vault), 10 ether);
+
+        // The reason payouts are pull rather than push survives claimFor:
+        // one call moves one payee's share, so a payee who cannot receive
+        // costs only themselves. (Locally the transfer succeeds — the
+        // blocklist is enforced by Arc, not by the EVM — so this asserts the
+        // isolation property, which is what the design actually rests on.)
+        vault.claimFor(dev1);
+        assertEq(dev1.balance, 5 ether, "an unaffected payee is paid in full");
+        assertEq(vault.claimable(dev1), 0);
+        assertEq(vault.claimable(platform), 0.5 ether, "and everyone else's claim is untouched");
+    }
 }

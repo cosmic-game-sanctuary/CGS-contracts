@@ -146,4 +146,31 @@ contract GameRegistryTest is Test {
         vm.stopPrank();
         assertTrue(registry.delisted(bytes32("game-1")));
     }
+
+    function test_announceDemandEmitsDemand() public {
+        vm.startPrank(operator);
+        registry.publish(bytes32("game-1"), "a-game", 300_000, vault, "bafy...");
+
+        vm.expectEmit(true, false, false, true);
+        emit GameRegistry.Demand(bytes32("game-1"), 137, 100);
+        registry.announceDemand(bytes32("game-1"), 137, 100);
+        vm.stopPrank();
+    }
+
+    function test_announceDemandRequiresPublishedFirst() public {
+        vm.prank(operator);
+        vm.expectRevert(GameRegistry.NotPublished.selector);
+        registry.announceDemand(bytes32("never-published"), 10, 10);
+    }
+
+    function test_onlyOperatorCanAnnounceDemand() public {
+        vm.prank(operator);
+        registry.publish(bytes32("game-1"), "a-game", 300_000, vault, "bafy...");
+
+        // Otherwise anyone could inflate a game's apparent demand, which is a
+        // signal a developer prices against.
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(GameRegistry.NotOperator.selector);
+        registry.announceDemand(bytes32("game-1"), 9999, 1000);
+    }
 }
