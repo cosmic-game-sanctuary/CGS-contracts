@@ -19,3 +19,6 @@ docs/
 .env.*
 !.env.example
 node_modules/
+
+# Timestamped copies of each broadcast; run-latest.json is the one worth keeping.
+broadcast/*/*/run-[0-9]*.json

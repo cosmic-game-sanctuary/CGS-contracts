@@ -4,25 +4,32 @@ pragma solidity ^0.8.24;
 /// @notice The public listing log — what the wishlist agent actually reads.
 ///
 /// This replaces the HCS listings topic the Hedera build used: the agent
-/// watches `Listed`/`Delisted` events via `eth_getLogs` instead of subscribing
-/// to a Mirror Node topic, but the rule that made the pitch true on Hedera is
-/// unchanged here — the agent learns about listings from this public,
+/// watches these events via `eth_getLogs` instead of subscribing to a Mirror
+/// Node topic, but the rule that made the pitch true on Hedera is unchanged
+/// here — the agent learns about listings from this public,
 /// independently-readable log, never from a database flag only we can see.
 /// Anyone could build the same agent against this contract with no
 /// permission from us, which is the whole point.
 ///
+/// Everything that changes what is on offer goes through here, not just the
+/// first listing: a price, a sale's deadline, a patch, a delisting and its
+/// reversal. A price that only ever changed in our database is a price no
+/// reader of this log can see, and `endsAt` is what lets a reader reason about
+/// a sale's deadline instead of guessing.
+///
 /// `operator` is the one restriction, set once at deployment: only it may
-/// publish or delist, because what's "real" still goes through moderation
-/// before it's on-chain. That's a gate on who may log something, not an
-/// admin override on anything already logged — there's no function here that
-/// edits or removes a past event, and delisting never touches `GameKey` or
-/// `SplitVault`, so it can't revoke anyone's access either.
+/// write, because what's "real" still goes through moderation before it's
+/// on-chain. That is a gate on who may log something, not an admin override
+/// on anything already logged — there is no function here that edits or
+/// removes a past event, and nothing here can touch `GameKey` or
+/// `SplitVault`, so no call can revoke anyone's access or redirect any money.
 contract GameRegistry {
     error NotOperator();
     error ZeroAddress();
     error AlreadyPublished();
     error NotPublished();
     error AlreadyDelisted();
+    error NotDelisted();
 
     address public immutable operator;
 
@@ -32,7 +39,21 @@ contract GameRegistry {
     mapping(bytes32 => bool) public delisted;
 
     event Listed(bytes32 indexed gameId, string slug, uint256 priceUnits, address vault, string buildCid);
+    /// `endsAt` is a unix timestamp, or zero when this isn't a timed sale.
+    event PriceChanged(bytes32 indexed gameId, uint256 fromUnits, uint256 toUnits, uint64 endsAt);
+    event BuildUpdated(bytes32 indexed gameId, uint32 version, string buildCid);
     event Delisted(bytes32 indexed gameId);
+    event Relisted(bytes32 indexed gameId, uint256 priceUnits);
+
+    modifier onlyOperator() {
+        if (msg.sender != operator) revert NotOperator();
+        _;
+    }
+
+    modifier published(bytes32 gameId) {
+        if (vaultOf[gameId] == address(0)) revert NotPublished();
+        _;
+    }
 
     constructor(address operator_) {
         if (operator_ == address(0)) revert ZeroAddress();
@@ -41,8 +62,8 @@ contract GameRegistry {
 
     function publish(bytes32 gameId, string calldata slug, uint256 priceUnits, address vault, string calldata buildCid)
         external
+        onlyOperator
     {
-        if (msg.sender != operator) revert NotOperator();
         if (vault == address(0)) revert ZeroAddress();
         if (vaultOf[gameId] != address(0)) revert AlreadyPublished();
 
@@ -50,12 +71,35 @@ contract GameRegistry {
         emit Listed(gameId, slug, priceUnits, vault, buildCid);
     }
 
-    function delist(bytes32 gameId) external {
-        if (msg.sender != operator) revert NotOperator();
-        if (vaultOf[gameId] == address(0)) revert NotPublished();
+    function setPrice(bytes32 gameId, uint256 fromUnits, uint256 toUnits, uint64 endsAt)
+        external
+        onlyOperator
+        published(gameId)
+    {
+        emit PriceChanged(gameId, fromUnits, toUnits, endsAt);
+    }
+
+    function updateBuild(bytes32 gameId, uint32 version, string calldata buildCid)
+        external
+        onlyOperator
+        published(gameId)
+    {
+        emit BuildUpdated(gameId, version, buildCid);
+    }
+
+    function delist(bytes32 gameId) external onlyOperator published(gameId) {
         if (delisted[gameId]) revert AlreadyDelisted();
 
         delisted[gameId] = true;
         emit Delisted(gameId);
+    }
+
+    /// Reverses a delisting a developer chose themselves. Moderation takedowns
+    /// are kept apart from this off-chain; the contract only records the flag.
+    function relist(bytes32 gameId, uint256 priceUnits) external onlyOperator published(gameId) {
+        if (!delisted[gameId]) revert NotDelisted();
+
+        delisted[gameId] = false;
+        emit Relisted(gameId, priceUnits);
     }
 }

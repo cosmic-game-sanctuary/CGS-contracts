@@ -71,4 +71,79 @@ contract GameRegistryTest is Test {
         registry.delist(bytes32("game-1"));
         vm.stopPrank();
     }
+
+    function _publishOne() internal {
+        vm.prank(operator);
+        registry.publish(bytes32("game-1"), "a-game", 300_000, vault, "bafy...");
+    }
+
+    function test_setPriceEmitsAndCarriesTheSaleDeadline() public {
+        _publishOne();
+
+        vm.expectEmit(true, false, false, true);
+        emit GameRegistry.PriceChanged(bytes32("game-1"), 300_000, 150_000, 1_900_000_000);
+
+        vm.prank(operator);
+        registry.setPrice(bytes32("game-1"), 300_000, 150_000, 1_900_000_000);
+    }
+
+    function test_priceAndBuildChangesNeedAPublishedGameAndTheOperator() public {
+        vm.startPrank(operator);
+        vm.expectRevert(GameRegistry.NotPublished.selector);
+        registry.setPrice(bytes32("nope"), 1, 2, 0);
+        vm.expectRevert(GameRegistry.NotPublished.selector);
+        registry.updateBuild(bytes32("nope"), 2, "bafy2");
+        vm.stopPrank();
+
+        _publishOne();
+        vm.startPrank(makeAddr("stranger"));
+        vm.expectRevert(GameRegistry.NotOperator.selector);
+        registry.setPrice(bytes32("game-1"), 1, 2, 0);
+        vm.expectRevert(GameRegistry.NotOperator.selector);
+        registry.updateBuild(bytes32("game-1"), 2, "bafy2");
+        vm.expectRevert(GameRegistry.NotOperator.selector);
+        registry.relist(bytes32("game-1"), 1);
+        vm.stopPrank();
+    }
+
+    function test_updateBuildEmits() public {
+        _publishOne();
+
+        vm.expectEmit(true, false, false, true);
+        emit GameRegistry.BuildUpdated(bytes32("game-1"), 2, "bafy2");
+
+        vm.prank(operator);
+        registry.updateBuild(bytes32("game-1"), 2, "bafy2");
+    }
+
+    function test_relistReversesADelistingAndNothingElse() public {
+        _publishOne();
+        vm.startPrank(operator);
+        registry.delist(bytes32("game-1"));
+
+        vm.expectEmit(true, false, false, true);
+        emit GameRegistry.Relisted(bytes32("game-1"), 250_000);
+        registry.relist(bytes32("game-1"), 250_000);
+        vm.stopPrank();
+
+        assertFalse(registry.delisted(bytes32("game-1")));
+        assertEq(registry.vaultOf(bytes32("game-1")), vault, "a delist/relist cycle must never touch the vault");
+    }
+
+    function test_cannotRelistAGameThatIsListed() public {
+        _publishOne();
+        vm.prank(operator);
+        vm.expectRevert(GameRegistry.NotDelisted.selector);
+        registry.relist(bytes32("game-1"), 1);
+    }
+
+    function test_canDelistAgainAfterARelist() public {
+        _publishOne();
+        vm.startPrank(operator);
+        registry.delist(bytes32("game-1"));
+        registry.relist(bytes32("game-1"), 1);
+        registry.delist(bytes32("game-1"));
+        vm.stopPrank();
+        assertTrue(registry.delisted(bytes32("game-1")));
+    }
 }
