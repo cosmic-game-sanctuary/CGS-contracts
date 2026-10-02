@@ -1,0 +1,9 @@
+{
+  "name": "cgs-contracts-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Node-side scripts for CGS-contracts (live integration tests, deploy helpers). The contracts themselves are Foundry/arc-forge, not npm.",
+  "dependencies": {
+    "viem": "^2.56.3"
+  }
+}
