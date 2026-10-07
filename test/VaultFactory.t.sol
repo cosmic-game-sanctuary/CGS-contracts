@@ -117,7 +117,9 @@ contract VaultFactoryTest is Test {
             assertEq(payees[0], platform, "the platform is payee zero");
             assertEq(shares[0], 500);
             uint256 total;
-            for (uint256 j = 0; j < shares.length; j++) total += shares[j];
+            for (uint256 j = 0; j < shares.length; j++) {
+                total += shares[j];
+            }
             assertEq(total, 10_000, "the logged shares add up to the whole");
         }
         assertTrue(found, "VaultDeployed was emitted");

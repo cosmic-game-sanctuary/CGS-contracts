@@ -40,10 +40,13 @@ contract VaultFactory {
     /// the first time and can carry on to the registry. Arguments are ignored
     /// on a repeat, by design — the split is fixed by whichever call deployed
     /// it, and a later caller passing a different one cannot change that.
-    function deploy(bytes32 gameId, address[] calldata recipients, uint16[] calldata bps, address platform, uint16 platformBps)
-        external
-        returns (address vault)
-    {
+    function deploy(
+        bytes32 gameId,
+        address[] calldata recipients,
+        uint16[] calldata bps,
+        address platform,
+        uint16 platformBps
+    ) external returns (address vault) {
         address existing = vaultOf[gameId];
         if (existing != address(0)) return existing;
 
